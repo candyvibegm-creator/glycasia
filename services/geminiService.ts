@@ -1,6 +1,7 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const API_KEY = process.env.VITE_API_KEY || '';
+const ai = new GoogleGenerativeAI(API_KEY);
 
 const DEFAULT_SYSTEM_INSTRUCTION = "You are Glucasia, a helpful, reasoning AI assistant created by Glucasia and 206. Be concise, accurate, and helpful.";
 
@@ -29,16 +30,15 @@ export const sendMessageToGemini = async (
       { role: 'user', parts: [{ text: newMessage }] }
     ];
 
-    const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: contents,
-        config: {
-            tools: [{ googleSearch: {} }],
-            systemInstruction: instruction
-        }
+    const model = ai.getGenerativeModel({
+      model: 'gemini-3-flash-preview',
+      systemInstruction: instruction
     });
+    
+    const result = await model.generateContent(contents);
+    const response = await result.response;
 
-    let text = response.text || "";
+    let text = response.text() || "";
     
     // Check for grounding
     const grounding = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -65,17 +65,12 @@ export const sendMessageToGemini = async (
  */
 export const generateImage = async (prompt: string, aspectRatio: string = "1:1"): Promise<string> => {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [{ text: prompt }]
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: aspectRatio,
-        }
-      }
+    const model = ai.getGenerativeModel({
+      model: 'gemini-2.5-flash-image'
     });
+    
+    const result = await model.generateContent([{ text: prompt }]);
+    const response = await result.response;
 
     // Iterate parts to find image
     for (const part of response.candidates?.[0]?.content?.parts || []) {
@@ -99,20 +94,19 @@ export const editImage = async (imageBase64: string, prompt: string): Promise<st
     // Strip header if present
     const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              data: cleanBase64,
-              mimeType: 'image/png' // Assuming png for simplicity, or detect from input
-            }
-          },
-          { text: prompt }
-        ]
-      }
+    const model = ai.getGenerativeModel({
+      model: 'gemini-2.5-flash-image'
     });
+    
+    const imagePart = {
+      inlineData: {
+        data: cleanBase64,
+        mimeType: 'image/png' // Assuming png for simplicity, or detect from input
+      }
+    };
+    
+    const result = await model.generateContent([imagePart, { text: prompt }]);
+    const response = await result.response;
 
     for (const part of response.candidates?.[0]?.content?.parts || []) {
       if (part.inlineData) {
@@ -131,14 +125,16 @@ export const editImage = async (imageBase64: string, prompt: string): Promise<st
  */
 export const enhancePrompt = async (originalPrompt: string): Promise<string> => {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Rewrite the following image generation prompt to be more descriptive, artistic, and detailed. 
-      Only return the enhanced prompt text, nothing else.
-      
-      Original Prompt: ${originalPrompt}`
+    const model = ai.getGenerativeModel({
+      model: 'gemini-3-flash-preview'
     });
-    return response.text || originalPrompt;
+    
+    const result = await model.generateContent(`Rewrite the following image generation prompt to be more descriptive, artistic, and detailed. 
+    Only return the enhanced prompt text, nothing else.
+    
+    Original Prompt: ${originalPrompt}`);
+    const response = await result.response;
+    return response.text() || originalPrompt;
   } catch (error) {
     console.error("Error enhancing prompt:", error);
     return originalPrompt;
